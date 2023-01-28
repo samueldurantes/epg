@@ -1,0 +1,48 @@
+use std::rc::Rc;
+use std::str::FromStr;
+use std::vec::Vec;
+use crate::ast::Expr;
+use crate::ast::TopLevel;
+
+grammar;
+
+id = r"[a-zA-Z]+";
+int: i32 = <s: r"[0-9]+"> => i32::from_str(s).unwrap();
+comment = r"[;]+";
+
+pub TopLevel: TopLevel = {
+  <name: id> "=" <expr: Expr> => TopLevel::TopDef(name.to_string(), expr),
+}
+
+pub TopLevelList: TopLevel = {
+  <t: TopLevel+> => {
+    let levels: Vec<Rc<TopLevel>> = t.into_iter().map(|x| Rc::new(x)).collect();
+
+    TopLevel::TopLoad(levels)
+  },
+}
+
+pub Expr: Expr = {
+  #[precedence(level="1")]
+  "(" <t: Expr> ")" => t,
+
+  #[precedence(level="1")]
+  id => Expr::Var(String::from(<>)),
+
+  #[precedence(level="1")]
+  int => Expr::Int(<>),
+
+  #[precedence(level="2")]
+  <fun: Expr> "(" <arg: Expr> ")" => Expr::App(Rc::new(fun), Rc::new(arg)),
+
+  #[precedence(level="3")]
+  #[assoc(side="left")]
+  <arg1: Expr> "+" <arg2: Expr> => Expr::Add(Rc::new(arg1), Rc::new(arg2)),
+
+  #[precedence(level="4")]
+  #[assoc(side="right")]
+  "#" <name: id> "=>" <body: Expr> => Expr::Lam(name.to_string(), Rc::new(body)),
+
+  #[precedence(level="4")]
+  "let" <name: id> "=" <val: Expr> "in" <body: Expr> => Expr::Let(name.to_string(), Rc::new(val), Rc::new(body)),
+}
