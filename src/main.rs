@@ -1,31 +1,19 @@
-use std::{
-  collections::HashMap,
-  rc::Rc,
+pub mod ast;
+pub mod grammar;
+
+use std::collections::HashMap;
+use ast::{
+  Name,
+  Context,
+  Expr,
+  Value,
+  Expr::*,
+  Value::*,
+  TopLevel,
 };
-use crate::Expr::*;
-use crate::Value::*;
 
-type Name = String;
-type BExpr = Rc<Expr>;
-
-#[derive(Clone, Debug)]
-enum Expr {
-  Var(Name),
-  Lam(Name, BExpr),
-  App(BExpr, BExpr),
-  // Let(Name, BExpr, BExpr),
-}
-
-type Context = HashMap<Name, Value>;
-
-#[derive(Clone, Debug)]
-enum Value {
-  Int(i64),
-  Closure(Context, String, BExpr), // ctx, param, body
-}
-
-enum TopLevel {
-  Def(Name, Expr),
+fn parse(input: &str) -> TopLevel {
+  grammar::TopLevelListParser::new().parse(input).unwrap()
 }
 
 fn find_variable(name: &Name, ctx: &Context) -> Value {
@@ -37,14 +25,15 @@ fn find_variable(name: &Name, ctx: &Context) -> Value {
 
 fn eval(expr: &Expr, ctx: Context) -> Value {
   match expr {
+    Int(i) => VInt(i.to_owned()),
     Var(name) => find_variable(name, &ctx),
     Lam(func, arg) =>
-      Closure(ctx, func.to_owned(), arg.clone()),
+      VClosure(ctx, func.to_owned(), arg.clone()),
     App(func, arg) => {
       let a = ctx.clone();
       let arg = eval(arg.as_ref(), ctx);
       match eval(func.as_ref(), a) {
-        Closure(c, p, b) => {
+        VClosure(c, p, b) => {
           let mut c = c.clone();
           c.insert(p, arg);
           eval(&b, c.to_owned())
@@ -52,67 +41,56 @@ fn eval(expr: &Expr, ctx: Context) -> Value {
         _ => todo!(),
       }
     },
+    Let(n, e, x) => {
+      let mut a = ctx.clone();
+      let b = eval(e.as_ref(), ctx);
+      a.insert(n.to_string(), b);
+
+      eval(x, a)
+    },
+    Add(arg1, arg2) => {
+      let a = ctx.clone();
+      match (eval(arg1, ctx), eval(arg2, a)) {
+        (VInt(i), VInt(k)) => VInt(i + k),
+        _ => todo!(),
+      }
+    },
+  }
+}
+
+fn eval_toplevel(t: &TopLevel, ctx: Context) -> Value {
+  let mut ctx = ctx.clone();
+
+  if let TopLevel::TopLoad(xs) = t {
+    for x in xs {
+      match x.as_ref() {
+        TopLevel::TopDef(n, e) => {
+          ctx.insert(n.to_string(), eval(&e, ctx.clone()));
+        },
+        _ => todo!(),
+      }
+    }
+  }
+
+  match ctx.get("main").clone() {
+    Some(e) => e.clone(),
+    None => panic!("main not defined"),
   }
 }
 
 fn main() {
-  // exp = \m -> \n -> n m
-  let exp: Expr = Lam(
-    "m".to_owned(),
-    Rc::new(
-      Lam(
-        "n".to_owned(),
-        Rc::new(
-          App(
-            Rc::new(Var("n".to_owned())),
-            Rc::new(Var("m".to_owned())),
-          ),
-        )
-      )
-    )
-  );
+  let ctx: Context = HashMap::new();
 
-  let two: Expr = Lam(
-    "f".to_owned(),
-    Rc::new(
-      Lam(
-        "x".to_owned(),
-        Rc::new(
-          App(
-            Rc::new(Var("f".to_owned())),
-            Rc::new(
-              App(
-                Rc::new(Var("f".to_owned())),
-                Rc::new(Var("x".to_owned())),
-              ),
-            )
-          ),
-        )
-      )
-    )
-  );
+  let ex: &str = "
+    pls = #x => x + 1
+    cti = #n => n(pls)(0)
+    two = #f => #x => f(f(x))
+    exp = #m => #n => n(m)
 
-  let a = two.clone();
+    id = #x => x
 
-  // App(App("exp", "two"), two)
-  let app = Rc::new(
-    App(
-      Rc::new(
-        App(
-          Rc::new(exp),
-          Rc::new(two),
-        )
-      ),
-      Rc::new(a),
-    )
-  );
+    main = cti(exp(two)(two))
+  ";
 
-  let data = vec![];
-  let ctx: Context = HashMap::from_iter(data.into_iter());
-
-  // let v = eval(&Var("one".to_owned()), ctx);
-  let f = eval(&app, ctx);
-
-  // println!("{v:?}");
-  println!("{f:?}");
+  println!("{}", eval_toplevel(&parse(ex), ctx.clone()));
 }
