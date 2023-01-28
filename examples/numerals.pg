@@ -1,0 +1,7 @@
+pls = #x => x + 1
+cti = #n => n(pls)(0)
+two = #f => #x => f(f(x))
+exp = #m => #n => n(m)
+id = #x => x
+
+main = cti(exp(two)(two))
